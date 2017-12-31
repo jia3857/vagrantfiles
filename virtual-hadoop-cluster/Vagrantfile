@@ -39,9 +39,11 @@ ff02::2 ip6-allrouters
 EOF
 cat > /tmp/setup-avahi.sh <<EOF
 if [[ "`lsb_release -i`" =~ .*CentOS.* ]] ; then
+    yum install -y ntp
     yum install -y epel-release
     yum install -y avahi-tools nss-mdns
 else
+    apt-get install -y ntp
     apt-get install -y avahi-daemon libnss-mdns
 fi
 EOF
@@ -53,6 +55,12 @@ useradd -u 12345 -g users -d /home/$USERNAME -s /bin/bash -p $(echo $PASSWORD | 
 mkdir -p ~systest/.ssh/; chmod 700 ~systest/.ssh/
 curl -s http://github.mtv.cloudera.com/raw/QE/deploy/master/cdep/data/id_rsa.pub > ~systest/.ssh/authorized_keys
 chmod 600 ~systest/.ssh/authorized_keys
+echo "systest ALL=(ALL) NOPASSWD: ALL"  >> /etc/sudoers
+
+cp /etc/ssh/sshd_config /etc/ssh/sshd_config.org
+sed -E -i 's/^#\s?PasswordAuthentication\s+yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
+sed -E -i 's/^\s?PasswordAuthentication\s+no/#PasswordAuthentication no/' /etc/ssh/sshd_config
+sed -E -i 's/^#?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
 
 echo -e "cloudera\ncloudera" | sudo passwd root
 SCRIPT
@@ -71,11 +79,12 @@ Vagrant.configure("2") do |config|
   config.vm.define :master do |master|
     master.vm.provider :virtualbox do |v|
       v.name = "vm-cluster-node1"
-      v.customize ["modifyvm", :id, "--memory", "4096"]
+      v.cpus = 2
+      v.customize ["modifyvm", :id, "--memory", "8192"]
     end
     master.vm.network :private_network, ip: "10.211.55.100"
     master.vm.network :forwarded_port, guest: 7180, host: 17180
-    master.vm.hostname = "vm-cluster-node1"
+    master.vm.hostname = "vm-cluster-node1.local"
     master.vm.provision "shell", path: "scripts/setup_ssh.sh"
     master.vm.provision :shell, :inline => $hosts_script
     master.vm.provision :hostmanager
@@ -86,10 +95,11 @@ Vagrant.configure("2") do |config|
     slave1.vm.box = "ubuntu/trusty64"
     slave1.vm.provider :virtualbox do |v|
       v.name = "vm-cluster-node2"
-      v.customize ["modifyvm", :id, "--memory", "2048"]
+      v.cpus = 2
+      v.customize ["modifyvm", :id, "--memory", "4096"]
     end
     slave1.vm.network :private_network, ip: "10.211.55.101"
-    slave1.vm.hostname = "vm-cluster-node2"
+    slave1.vm.hostname = "vm-cluster-node2.local"
     slave1.vm.provision "shell", path: "scripts/setup_ssh.sh"
     slave1.vm.provision :shell, :inline => $hosts_script
     slave1.vm.provision :hostmanager
@@ -99,10 +109,11 @@ Vagrant.configure("2") do |config|
     slave2.vm.box = "ubuntu/trusty64"
     slave2.vm.provider :virtualbox do |v|
       v.name = "vm-cluster-node3"
-      v.customize ["modifyvm", :id, "--memory", "2048"]
+      v.cpus = 2
+      v.customize ["modifyvm", :id, "--memory", "4096"]
     end
     slave2.vm.network :private_network, ip: "10.211.55.102"
-    slave2.vm.hostname = "vm-cluster-node3"
+    slave2.vm.hostname = "vm-cluster-node3.local"
     slave2.vm.provision :shell, :inline => $hosts_script
     slave2.vm.provision :hostmanager
   end
@@ -111,10 +122,11 @@ Vagrant.configure("2") do |config|
     slave3.vm.box = "ubuntu/trusty64"
     slave3.vm.provider :virtualbox do |v|
       v.name = "vm-cluster-node4"
-      v.customize ["modifyvm", :id, "--memory", "2048"]
+      v.cpus = 2
+      v.customize ["modifyvm", :id, "--memory", "4096"]
     end
     slave3.vm.network :private_network, ip: "10.211.55.103"
-    slave3.vm.hostname = "vm-cluster-node4"
+    slave3.vm.hostname = "vm-cluster-node4.local"
     slave3.vm.provision :shell, :inline => $hosts_script
     slave3.vm.provision :hostmanager
   end
@@ -123,10 +135,11 @@ Vagrant.configure("2") do |config|
     slave4.vm.box = "centos/7"
     slave4.vm.provider :virtualbox do |v|
       v.name = "vm-cluster-node5"
-      v.customize ["modifyvm", :id, "--memory", "4096"]
+      v.cpus = 2
+      v.customize ["modifyvm", :id, "--memory", "8192"]
     end
     slave4.vm.network :private_network, ip: "10.211.55.104"
-    slave4.vm.hostname = "vm-cluster-node5"
+    slave4.vm.hostname = "vm-cluster-node5.local"
     slave4.vm.provision "shell", inline: <<-SHELL
       yum install -y redhat-lsb-core
     SHELL
@@ -141,7 +154,8 @@ Vagrant.configure("2") do |config|
       v.customize ["modifyvm", :id, "--memory", "512"]
     end
     cdep.vm.network :private_network, ip: "10.211.55.99"
-    cdep.vm.hostname = "cdep"
+    cdep.vm.network "forwarded_port", guest: 8080, host: 8080
+    cdep.vm.hostname = "cdep.local"
     cdep.vm.provision "shell", inline: <<-SHELL
       yum install -y redhat-lsb-core git
       yum install -y gcc libffi-devel python-devel python-virtualenv openssl-devel
