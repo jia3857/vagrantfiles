@@ -61,6 +61,7 @@ cp /etc/ssh/sshd_config /etc/ssh/sshd_config.org
 sed -E -i 's/^#\s?PasswordAuthentication\s+yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
 sed -E -i 's/^\s?PasswordAuthentication\s+no/#PasswordAuthentication no/' /etc/ssh/sshd_config
 sed -E -i 's/^#?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+sudo systemctl restart sshd
 
 echo -e "cloudera\ncloudera" | sudo passwd root
 SCRIPT
@@ -68,7 +69,7 @@ SCRIPT
 Vagrant.configure("2") do |config|
 
   # Define base image
-  config.vm.box = "ubuntu/trusty64"
+  config.vm.box = "centos/7"
 
   # Manage /etc/hosts on host and VMs
   config.hostmanager.enabled = false
@@ -77,56 +78,69 @@ Vagrant.configure("2") do |config|
   config.hostmanager.ignore_private_ip = false
 
   config.vm.define :master do |master|
+    master.vm.box = "centos/7"
     master.vm.provider :virtualbox do |v|
       v.name = "vm-cluster-node1"
-      v.cpus = 2
-      v.customize ["modifyvm", :id, "--memory", "8192"]
+      v.cpus = 4
+      v.customize ["modifyvm", :id, "--memory", "16384"]
     end
     master.vm.network :private_network, ip: "10.211.55.100"
     master.vm.network :forwarded_port, guest: 7180, host: 17180
     master.vm.hostname = "vm-cluster-node1.local"
+    master.vm.provision "shell", inline: <<-SHELL
+      yum install -y redhat-lsb-core
+    SHELL
     master.vm.provision "shell", path: "scripts/setup_ssh.sh"
     master.vm.provision :shell, :inline => $hosts_script
     master.vm.provision :hostmanager
-    master.vm.provision :shell, :inline => $master_script
+    # master.vm.provision :shell, :inline => $master_script
   end
 
   config.vm.define :slave1 do |slave1|
-    slave1.vm.box = "ubuntu/trusty64"
+    slave1.vm.box = "centos/7"
     slave1.vm.provider :virtualbox do |v|
       v.name = "vm-cluster-node2"
       v.cpus = 2
-      v.customize ["modifyvm", :id, "--memory", "4096"]
+      v.customize ["modifyvm", :id, "--memory", "8192"]
     end
     slave1.vm.network :private_network, ip: "10.211.55.101"
     slave1.vm.hostname = "vm-cluster-node2.local"
+    slave1.vm.provision "shell", inline: <<-SHELL
+      yum install -y redhat-lsb-core
+    SHELL
     slave1.vm.provision "shell", path: "scripts/setup_ssh.sh"
     slave1.vm.provision :shell, :inline => $hosts_script
     slave1.vm.provision :hostmanager
   end
 
   config.vm.define :slave2 do |slave2|
-    slave2.vm.box = "ubuntu/trusty64"
+    slave2.vm.box = "centos/7"
     slave2.vm.provider :virtualbox do |v|
       v.name = "vm-cluster-node3"
       v.cpus = 2
-      v.customize ["modifyvm", :id, "--memory", "4096"]
+      v.customize ["modifyvm", :id, "--memory", "8192"]
     end
     slave2.vm.network :private_network, ip: "10.211.55.102"
     slave2.vm.hostname = "vm-cluster-node3.local"
+    slave2.vm.provision "shell", inline: <<-SHELL
+      yum install -y redhat-lsb-core
+    SHELL
     slave2.vm.provision :shell, :inline => $hosts_script
     slave2.vm.provision :hostmanager
   end
 
   config.vm.define :slave3 do |slave3|
-    slave3.vm.box = "ubuntu/trusty64"
+    slave3.vm.box = "centos/7"
     slave3.vm.provider :virtualbox do |v|
       v.name = "vm-cluster-node4"
       v.cpus = 2
-      v.customize ["modifyvm", :id, "--memory", "4096"]
+      v.customize ["modifyvm", :id, "--memory", "8192"]
     end
     slave3.vm.network :private_network, ip: "10.211.55.103"
     slave3.vm.hostname = "vm-cluster-node4.local"
+    slave3.vm.provision "shell", inline: <<-SHELL
+      yum install -y redhat-lsb-core
+    SHELL
     slave3.vm.provision :shell, :inline => $hosts_script
     slave3.vm.provision :hostmanager
   end
