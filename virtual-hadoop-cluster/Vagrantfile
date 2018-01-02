@@ -40,6 +40,7 @@ EOF
 cat > /tmp/setup-avahi.sh <<EOF
 if [[ "`lsb_release -i`" =~ .*CentOS.* ]] ; then
     yum install -y ntp
+    timedatectl set-timezone "America/Los_Angeles"
     yum install -y epel-release
     yum install -y avahi-tools nss-mdns
 else
@@ -78,11 +79,11 @@ Vagrant.configure("2") do |config|
   config.hostmanager.ignore_private_ip = false
 
   config.vm.define :master do |master|
-    master.vm.box = "centos/7"
+    master.vm.box = "bento/centos-7.2"
     master.vm.provider :virtualbox do |v|
       v.name = "vm-cluster-node1"
       v.cpus = 4
-      v.customize ["modifyvm", :id, "--memory", "16384"]
+      v.customize ["modifyvm", :id, "--memory", "32768"]
     end
     master.vm.network :private_network, ip: "10.211.55.100"
     master.vm.network :forwarded_port, guest: 7180, host: 17180
@@ -97,11 +98,11 @@ Vagrant.configure("2") do |config|
   end
 
   config.vm.define :slave1 do |slave1|
-    slave1.vm.box = "centos/7"
+    slave1.vm.box = "bento/centos-7.2"
     slave1.vm.provider :virtualbox do |v|
       v.name = "vm-cluster-node2"
       v.cpus = 2
-      v.customize ["modifyvm", :id, "--memory", "8192"]
+      v.customize ["modifyvm", :id, "--memory", "4096"]
     end
     slave1.vm.network :private_network, ip: "10.211.55.101"
     slave1.vm.hostname = "vm-cluster-node2.local"
@@ -114,11 +115,11 @@ Vagrant.configure("2") do |config|
   end
 
   config.vm.define :slave2 do |slave2|
-    slave2.vm.box = "centos/7"
+    slave2.vm.box = "bento/centos-7.2"
     slave2.vm.provider :virtualbox do |v|
       v.name = "vm-cluster-node3"
       v.cpus = 2
-      v.customize ["modifyvm", :id, "--memory", "8192"]
+      v.customize ["modifyvm", :id, "--memory", "4096"]
     end
     slave2.vm.network :private_network, ip: "10.211.55.102"
     slave2.vm.hostname = "vm-cluster-node3.local"
@@ -130,11 +131,11 @@ Vagrant.configure("2") do |config|
   end
 
   config.vm.define :slave3 do |slave3|
-    slave3.vm.box = "centos/7"
+    slave3.vm.box = "bento/centos-7.2"
     slave3.vm.provider :virtualbox do |v|
       v.name = "vm-cluster-node4"
       v.cpus = 2
-      v.customize ["modifyvm", :id, "--memory", "8192"]
+      v.customize ["modifyvm", :id, "--memory", "4096"]
     end
     slave3.vm.network :private_network, ip: "10.211.55.103"
     slave3.vm.hostname = "vm-cluster-node4.local"
@@ -146,7 +147,7 @@ Vagrant.configure("2") do |config|
   end
 
   config.vm.define :slave4 do |slave4|
-    slave4.vm.box = "centos/7"
+    slave4.vm.box = "bento/centos-7.2"
     slave4.vm.provider :virtualbox do |v|
       v.name = "vm-cluster-node5"
       v.cpus = 2
