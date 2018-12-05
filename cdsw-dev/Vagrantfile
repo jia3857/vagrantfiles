@@ -1,0 +1,129 @@
+$master_script = <<SCRIPT
+#!/bin/bash
+
+apt-get install curl -y
+REPOCM=${REPOCM:-cm5}
+CM_REPO_HOST=${CM_REPO_HOST:-archive.cloudera.com}
+CM_MAJOR_VERSION=$(echo $REPOCM | sed -e 's/cm\\([0-9]\\).*/\\1/')
+CM_VERSION=$(echo $REPOCM | sed -e 's/cm\\([0-9][0-9]*\\)/\\1/')
+OS_CODENAME=$(lsb_release -sc)
+OS_DISTID=$(lsb_release -si | tr '[A-Z]' '[a-z]')
+if [ $CM_MAJOR_VERSION -ge 4 ]; then
+  cat > /etc/apt/sources.list.d/cloudera-$REPOCM.list <<EOF
+deb [arch=amd64] http://$CM_REPO_HOST/cm$CM_MAJOR_VERSION/$OS_DISTID/$OS_CODENAME/amd64/cm $OS_CODENAME-$REPOCM contrib
+deb-src http://$CM_REPO_HOST/cm$CM_MAJOR_VERSION/$OS_DISTID/$OS_CODENAME/amd64/cm $OS_CODENAME-$REPOCM contrib
+EOF
+curl -s http://$CM_REPO_HOST/cm$CM_MAJOR_VERSION/$OS_DISTID/$OS_CODENAME/amd64/cm/archive.key > key
+apt-key add key
+rm key
+fi
+apt-get update
+export DEBIAN_FRONTEND=noninteractive
+apt-get -q -y --force-yes install oracle-j2sdk1.7 cloudera-manager-server-db cloudera-manager-server cloudera-manager-daemons
+service cloudera-scm-server-db initdb
+service cloudera-scm-server-db start
+service cloudera-scm-server start
+SCRIPT
+
+$hosts_script = <<SCRIPT
+cat > /etc/hosts <<EOF
+127.0.0.1       localhost
+
+# The following lines are desirable for IPv6 capable hosts
+::1     ip6-localhost ip6-loopback
+fe00::0 ip6-localnet
+ff00::0 ip6-mcastprefix
+ff02::1 ip6-allnodes
+ff02::2 ip6-allrouters
+
+EOF
+cat > /tmp/setup-avahi.sh <<EOF
+if [[ "`lsb_release -i`" =~ .*CentOS.* ]] ; then
+    yum install -y ntp
+    timedatectl set-timezone "America/Los_Angeles"
+    yum install -y epel-release
+    yum install -y avahi-tools nss-mdns
+else
+    apt-get install -y ntp
+    apt-get install -y avahi-daemon libnss-mdns
+fi
+EOF
+bash -x /tmp/setup-avahi.sh
+
+USERNAME="systest"
+PASSWORD="cloudera"
+useradd -u 12345 -g users -d /home/$USERNAME -s /bin/bash -p $(echo $PASSWORD | openssl passwd -1 -stdin) $USERNAME
+mkdir -p ~systest/.ssh/; chmod 700 ~systest/.ssh/
+curl -s http://github.mtv.cloudera.com/raw/QE/deploy/master/cdep/data/id_rsa.pub > ~systest/.ssh/authorized_keys
+chmod 600 ~systest/.ssh/authorized_keys
+echo "systest ALL=(ALL) NOPASSWD: ALL"  >> /etc/sudoers
+
+cp /etc/ssh/sshd_config /etc/ssh/sshd_config.org
+sed -E -i 's/^#\s?PasswordAuthentication\s+yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
+sed -E -i 's/^\s?PasswordAuthentication\s+no/#PasswordAuthentication no/' /etc/ssh/sshd_config
+sed -E -i 's/^#?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+sudo systemctl restart sshd
+
+echo -e "cloudera\ncloudera" | sudo passwd root
+SCRIPT
+
+Vagrant.configure("2") do |config|
+
+  # Define base image
+  config.vm.box = "centos/7"
+
+  # Manage /etc/hosts on host and VMs
+  config.hostmanager.enabled = false
+  config.hostmanager.manage_host = true
+  config.hostmanager.include_offline = true
+  config.hostmanager.ignore_private_ip = false
+
+  config.vm.define :master do |master|
+    master.vm.box = "bento/centos-7.2"
+    master.vm.provider :virtualbox do |v|
+      v.name = "vm-cluster-node1"
+      v.cpus = 4
+      v.customize ["modifyvm", :id, "--memory", "8192"]
+    end
+    master.vm.network :private_network, ip: "10.211.55.100"
+    master.vm.network :forwarded_port, guest: 7180, host: 17180
+    master.vm.hostname = "vm-cluster-node1.local"
+    master.vm.provision "shell", inline: <<-SHELL
+      yum install -y redhat-lsb-core
+    SHELL
+    master.vm.provision "shell", path: "scripts/setup_ssh.sh"
+    master.vm.provision :shell, :inline => $hosts_script
+    master.vm.provision :hostmanager
+    # master.vm.provision :shell, :inline => $master_script
+  end
+
+  config.vm.define :slave4 do |slave4|
+    slave4.vm.box = "bento/centos-7.2"
+    slave4.vm.provider :virtualbox do |v|
+      v.name = "cdsw-dev"
+      v.cpus = 4
+      # v.customize ["modifyvm", :id, "--cpus", "4"]
+      v.customize ["modifyvm", :id, "--memory", "8192"]
+      file_to_disk = 'disk1.vdi'
+      unless File.exist?(file_to_disk)
+        # 50 GB
+        v.customize ['createhd', '--filename', file_to_disk, '--size', 50 * 1024]
+      end
+      v.customize ['storageattach', :id, '--storagectl', 'SATAController', '--port', 1, '--device', 0, '--type', 'hdd', '--medium', file_to_disk]
+      file_to_disk = 'disk2.vdi'
+      unless File.exist?(file_to_disk)
+        # 50 GB
+        v.customize ['createhd', '--filename', file_to_disk, '--size', 50 * 1024]
+      end
+      v.customize ['storageattach', :id, '--storagectl', 'SATAController', '--port', 1, '--device', 0, '--type', 'hdd', '--medium', file_to_disk]
+    end
+    slave4.vm.network :private_network, ip: "10.211.55.104"
+    slave4.vm.hostname = "cdsw.local"
+    slave4.vm.provision "shell", inline: <<-SHELL
+      yum install -y redhat-lsb-core
+    SHELL
+    slave4.vm.provision :shell, :inline => $hosts_script
+    slave4.vm.provision :hostmanager
+  end
+
+end
