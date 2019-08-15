@@ -1,3 +1,10 @@
+# Setup on host
+```bash
+# Install ansible on host (Mac)
+$ brew install ansible
+$ cd $DIR_Vagrantfile; vagrant up
+```
+
 # How to access vagrant k8s cluster
 ```bash
 $ ## Accessing master
