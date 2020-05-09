@@ -1,0 +1,31 @@
+Vagrant.require_version ">= 1.6.5"
+
+VAGRANTFILE_API_VERSION = "2"
+
+Vagrant.configure(VAGRANTFILE_API_VERSION) do |config|
+  config.vm.box = "yungsang/boot2docker"
+  config.vm.network "private_network", ip: ENV['BOOT2DOCKER_IP'] || "10.211.55.5"
+
+  config.vm.provider "parallels" do |v, override|
+    override.vm.box = "parallels/boot2docker"
+    override.vm.network "private_network", type: "dhcp"
+  end
+
+  # Fix busybox/udhcpc issue
+  config.vm.provision :shell do |s|
+    s.inline = <<-EOT
+      if ! grep -qs ^nameserver /etc/resolv.conf; then
+        sudo /sbin/udhcpc
+      fi
+      cat /etc/resolv.conf
+    EOT
+  end
+
+  # Adjust datetime after suspend and resume
+  config.vm.provision :shell do |s|
+    s.inline = <<-EOT
+      sudo /usr/local/bin/ntpclient -s -h pool.ntp.org
+      date
+    EOT
+  end
+end
