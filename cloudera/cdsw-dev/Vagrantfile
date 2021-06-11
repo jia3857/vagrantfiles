@@ -1,4 +1,4 @@
-$master_script = <<SCRIPT
+$cm_install_script_debian = <<SCRIPT
 #!/bin/bash
 
 apt-get install curl -y
@@ -20,6 +20,34 @@ fi
 apt-get update
 export DEBIAN_FRONTEND=noninteractive
 apt-get -q -y --force-yes install oracle-j2sdk1.7 cloudera-manager-server-db cloudera-manager-server cloudera-manager-daemons
+service cloudera-scm-server-db initdb
+service cloudera-scm-server-db start
+service cloudera-scm-server start
+SCRIPT
+
+$cm_install_script = <<SCRIPT
+#!/bin/bash
+
+yum install -y curl redhat-lsb-core
+
+# install java
+wget --quiet --no-check-certificate -c --header "Cookie: oraclelicense=accept-securebackup-cookie" \
+  https://download.oracle.com/otn-pub/java/jdk/14.0.2+12/205943a0976c4ed48cb16f1043c5c647/jdk-14.0.2_linux-x64_bin.rpm
+yum localinstall -y jdk-14.0.2_linux-x64_bin.rpm
+java -version
+
+# install cm
+REPOCM=${REPOCM:-cm6}
+CM_REPO_HOST=${CM_REPO_HOST:-archive.cloudera.com}
+CM_MAJOR_VERSION=$(echo $REPOCM | sed -e 's/cm\\([0-9]\\).*/\\1/')
+CM_VERSION=$(echo $REPOCM | sed -e 's/cm\\([0-9][0-9]*\\)/\\1/')
+OS_CODENAME=$(lsb_release -sc)
+OS_DISTID=$(lsb_release -si | tr '[A-Z]' '[a-z]')
+if [ $CM_MAJOR_VERSION -ge 4 ]; then
+  curl -qs https://archive.cloudera.com/cm6/6.3.1/redhat7/yum/cloudera-manager.repo | tee /etc/yum.repos.d/cloudera-manager.repo
+  rpm --import https://archive.cloudera.com/cm6/6.3.1/redhat7/yum/RPM-GPG-KEY-cloudera
+fi
+yum install -y oracle-j2sdk1.7 cloudera-manager-server-db cloudera-manager-server cloudera-manager-daemons
 service cloudera-scm-server-db initdb
 service cloudera-scm-server-db start
 service cloudera-scm-server start
@@ -50,6 +78,10 @@ fi
 EOF
 bash -x /tmp/setup-avahi.sh
 
+echo "==== reset root password to ${PASSWORD} ===="
+usermod --password cloudera root
+
+echo "==== setup systest user ===="
 USERNAME="systest"
 PASSWORD="cloudera"
 useradd -u 12345 -g users -d /home/$USERNAME -s /bin/bash -p $(echo $PASSWORD | openssl passwd -1 -stdin) $USERNAME
@@ -63,8 +95,11 @@ sed -E -i 's/^#\s?PasswordAuthentication\s+yes/PasswordAuthentication yes/' /etc
 sed -E -i 's/^\s?PasswordAuthentication\s+no/#PasswordAuthentication no/' /etc/ssh/sshd_config
 sed -E -i 's/^#?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
 sudo systemctl restart sshd
+SCRIPT
 
-echo -e "cloudera\ncloudera" | sudo passwd root
+$cdsw_install_script = <<SCRIPT
+curl -qs https://archive.cloudera.com/cdsw1/1.7.2/redhat7/yum/cloudera-cdsw.repo | tee /etc/yum.repos.d/cloudera-cdsw.repo
+yum search cloudera-data-science-workbench
 SCRIPT
 
 Vagrant.configure("2") do |config|
@@ -73,57 +108,53 @@ Vagrant.configure("2") do |config|
   config.vm.box = "centos/7"
 
   # Manage /etc/hosts on host and VMs
-  config.hostmanager.enabled = false
+  config.hostmanager.enabled = false # Disable the default hostmanager behavior
   config.hostmanager.manage_host = true
   config.hostmanager.include_offline = true
   config.hostmanager.ignore_private_ip = false
 
-  config.vm.define :master do |master|
-    master.vm.box = "bento/centos-7.2"
-    master.vm.provider :virtualbox do |v|
-      v.name = "vm-cluster-node1"
+  config.vm.define :cdh do |cdh|
+    cdh.vm.box = "bento/centos-7.2"
+    cdh.vm.provider :virtualbox do |v|
+      v.name = "vm-cdh"
       v.cpus = 4
       v.customize ["modifyvm", :id, "--memory", "8192"]
     end
-    master.vm.network :private_network, ip: "10.211.55.100"
-    master.vm.network :forwarded_port, guest: 7180, host: 17180
-    master.vm.hostname = "vm-cluster-node1.local"
-    master.vm.provision "shell", inline: <<-SHELL
+    cdh.vm.network :private_network, ip: "10.211.55.100"
+    cdh.vm.network :forwarded_port, guest: 7180, host: 17180
+    cdh.vm.hostname = "vm-cdh.local"
+    cdh.vm.provision "shell", inline: <<-SHELL
       yum install -y redhat-lsb-core
     SHELL
-    master.vm.provision "shell", path: "scripts/setup_ssh.sh"
-    master.vm.provision :shell, :inline => $hosts_script
-    master.vm.provision :hostmanager
-    # master.vm.provision :shell, :inline => $master_script
+    cdh.vm.provision "shell", path: "scripts/setup_ssh.sh"
+    cdh.vm.provision :shell, :inline => $hosts_script
+    cdh.vm.provision :shell, :inline => $cm_install_script
+    cdh.vm.provision :hostmanager
   end
 
-  config.vm.define :slave4 do |slave4|
-    slave4.vm.box = "bento/centos-7.2"
-    slave4.vm.provider :virtualbox do |v|
-      v.name = "cdsw-dev"
+  config.vm.define :cdsw do |cdsw|
+    cdsw.vm.box = "bento/centos-7.2"
+    cdsw.vm.provider :virtualbox do |v|
+      v.name = "vm-cdsw"
       v.cpus = 4
       # v.customize ["modifyvm", :id, "--cpus", "4"]
       v.customize ["modifyvm", :id, "--memory", "8192"]
       file_to_disk = 'disk1.vdi'
       unless File.exist?(file_to_disk)
-        # 50 GB
-        v.customize ['createhd', '--filename', file_to_disk, '--size', 50 * 1024]
+        # 100 GB block device
+        v.customize ['createhd', '--filename', file_to_disk, '--size', 100 * 1024]
       end
-      v.customize ['storageattach', :id, '--storagectl', 'SATAController', '--port', 1, '--device', 0, '--type', 'hdd', '--medium', file_to_disk]
-      file_to_disk = 'disk2.vdi'
-      unless File.exist?(file_to_disk)
-        # 50 GB
-        v.customize ['createhd', '--filename', file_to_disk, '--size', 50 * 1024]
-      end
-      v.customize ['storageattach', :id, '--storagectl', 'SATAController', '--port', 1, '--device', 0, '--type', 'hdd', '--medium', file_to_disk]
+      v.customize ['storageattach', :id, '--storagectl', 'SATA Controller', '--port', 1, '--device', 0, '--type', 'hdd', '--medium', file_to_disk]
     end
-    slave4.vm.network :private_network, ip: "10.211.55.104"
-    slave4.vm.hostname = "cdsw.local"
-    slave4.vm.provision "shell", inline: <<-SHELL
-      yum install -y redhat-lsb-core
+    cdsw.vm.network :private_network, ip: "10.211.55.104"
+    cdsw.vm.hostname = "vm-cdsw.local"
+    cdsw.vm.provision "shell", inline: <<-SHELL
+      sudo yum install -y redhat-lsb-core
     SHELL
-    slave4.vm.provision :shell, :inline => $hosts_script
-    slave4.vm.provision :hostmanager
+    cdsw.vm.provision "shell", path: "scripts/setup_ssh.sh"
+    cdsw.vm.provision :shell, :inline => $hosts_script
+    cdsw.vm.provision :shell, :inline => $cdsw_install_script
+    cdsw.vm.provision :hostmanager
   end
 
 end
